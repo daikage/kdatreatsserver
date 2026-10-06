@@ -24,7 +24,7 @@ export function createDriver() {
   }
 
   const file = process.env.SQLITE_PATH
-    || path.join(process.cwd(), 'data', 'kdbtreats.db');
+    || path.join(process.cwd(), 'data', 'KDAtreats.db');
   console.log(`DB: SQLite (${file})`);
   return createSqliteDriver(file);
 }

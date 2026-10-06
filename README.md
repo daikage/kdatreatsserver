@@ -1,6 +1,6 @@
-# KDB Treats — Server
+# KDA Treats — Server
 
-Express + SQLite REST API for the KDB Treats storefront.
+Express + SQLite REST API for the KDA Treats storefront.
 
 ## Stack
 
@@ -19,7 +19,7 @@ npm run seed     # populate an empty database
 npm run test:api # run the end-to-end API tests
 ```
 
-The database file is created automatically at `data/kdbtreats.db` on first run.
+The database file is created automatically at `data/KDAtreats.db` on first run.
 Seeding runs automatically at startup only when the database is empty, so admin
 edits (prices, availability) are never silently overwritten on restart. Use
 `npm run seed -- --force` to deliberately rebuild the catalogue.
@@ -44,15 +44,22 @@ Base URL: `http://localhost:4000/api`
 | GET    | `/categories`        | Categories only                         |
 | GET    | `/menu/:id`          | Single item (404 if unknown)            |
 | PATCH  | `/menu/:id`          | Update `price`, `isAvailable`, `isFeatured` |
+| POST   | `/menu`              | **Admin** — create a menu item          |
+| PUT    | `/menu/:id`          | **Admin** — full item update (name, description, price, category, image, spiceLevel, availability, featured) |
+| DELETE | `/menu/:id`          | **Admin** — delete a menu item          |
+| POST   | `/categories`        | **Admin** — create a category (auto slug) |
+| PUT    | `/categories/:id`    | **Admin** — update name/icon/sortOrder/slug |
+| DELETE | `/categories/:id`    | **Admin** — delete a category (409 if items still use it) |
 
 ### Orders
 
 | Method | Endpoint                | Description                          |
 | ------ | ----------------------- | ------------------------------------ |
 | POST   | `/orders`               | Create an order                      |
-| GET    | `/orders`               | List recent orders (`?limit=`)       |
+| GET    | `/orders`               | List orders (`?limit=`, `?status=`)  |
 | GET    | `/orders/:id`           | Order with its line items            |
 | PATCH  | `/orders/:id/status`    | Update order status                  |
+| DELETE | `/orders/:id`           | **Admin** — delete an order          |
 
 `POST /orders` body:
 
@@ -81,13 +88,43 @@ Valid statuses: `pending`, `confirmed`, `preparing`, `out_for_delivery`,
 | POST   | `/messages`           | Submit a contact message |
 | GET    | `/messages`           | List messages            |
 | PATCH  | `/messages/:id/read`  | Mark read/unread        |
+| DELETE | `/messages/:id`       | **Admin** — delete a message |
+
+### Admin dashboard
+
+| Method | Endpoint         | Description                                            |
+| ------ | ---------------- | ------------------------------------------------------ |
+| GET    | `/admin/stats`   | Revenue/order totals, status breakdown, last-7-days sales, recent orders, best sellers, unread messages |
+
+### Admin passcode (auth)
+
+The admin panel and admin endpoints are protected by a shared passcode.
+
+| Method | Endpoint         | Description                                            |
+| ------ | ---------------- | ------------------------------------------------------ |
+| POST   | `/admin/login`   | Body `{ "passcode": "…" }` → `{ "token": "…" }`        |
+
+1. Set `ADMIN_PASSCODE` (defaults to `KDAtreats-admin` with a console warning —
+   change it before going live).
+2. `POST /api/admin/login` returns a stateless HMAC-signed token (12h expiry).
+3. Send it on every protected request: `Authorization: Bearer <token>`.
+
+Protected endpoints: `GET /admin/stats`; `POST/PUT/DELETE /menu` and
+`/menu/:id`; `PATCH /menu/:id`; category CRUD; `GET /orders`, `GET /orders/:id`,
+`PATCH /orders/:id/status`, `DELETE /orders/:id`; `GET /messages`,
+`PATCH /messages/:id/read`, `DELETE /messages/:id`.
+
+Public endpoints (no token needed): `GET /menu`, `GET /menu/:id`,
+`GET /categories`, `POST /orders`, `POST /messages`, `GET /health`.
 
 ## Configuration
 
 | Variable      | Default                 | Description                        |
 | ------------- | ----------------------- | ---------------------------------- |
 | `PORT`        | `4000`                  | HTTP port                          |
-| `DB_PATH`     | `data/kdbtreats.db`     | SQLite file location               |
+| `ADMIN_PASSCODE` | `KDAtreats-admin`    | Passcode for the admin panel       |
+| `SQLITE_PATH` | `data/KDAtreats.db`     | SQLite file location               |
+| `DATABASE_URL`| —                       | `postgres://…` enables Postgres    |
 | `CORS_ORIGIN` | reflect request origin  | Allowed client origin              |
 
 ## Project structure
@@ -96,16 +133,24 @@ Valid statuses: `pending`, `confirmed`, `preparing`, `out_for_delivery`,
 server/
 ├── src/
 │   ├── index.js          # App entry, middleware, server bootstrap
-│   ├── db.js             # SQLite connection, schema, transaction helper
+│   ├── db/
+│   │   ├── index.js      # DB driver selection + shared query helpers
+│   │   ├── migrate.js    # Idempotent schema (SQLite + Postgres)
+│   │   ├── sqlite.js     # node:sqlite driver
+│   │   └── postgres.js   # pg driver
 │   ├── seed.js           # Seeds from client/src/data/menu.js
 │   └── routes/
-│       ├── menu.js       # Categories + menu items
-│       ├── orders.js     # Order creation and tracking
-│       └── messages.js   # Contact form submissions
+│       ├── menu.js       # Categories + menu items (+ admin CRUD)
+│       ├── orders.js     # Order creation, tracking, admin delete
+│       ├── messages.js   # Contact form submissions (+ admin delete)
+│       └── admin.js      # Dashboard stats
 ├── test/
 │   └── api.test.js       # End-to-end API tests
 └── data/                 # SQLite file (gitignored)
 ```
+
+> The legacy `src/db.js` module is no longer imported anywhere; all routes use
+> the async driver in `src/db/index.js`.
 
 ## Running with the client
 
@@ -123,7 +168,9 @@ works.
 
 ## Notes / future work
 
-- **No authentication yet.** The admin routes (`PATCH /menu/:id`,
-  `GET /orders`, `GET /messages`) are open. Add auth before going live.
-- Add rate limiting on `POST /orders` and `POST /messages`.
+- **Auth is passcode-based and shared across all admins.** The signed token
+  expires after 12 hours and the passcode is compared in constant time, but a
+  production deployment should add per-admin accounts, a rate-limited login and
+  HTTPS.
+- Add rate limiting on `POST /orders`, `POST /messages` and `POST /admin/login`.
 - Consider adding order status notifications (email/SMS) as orders progress.

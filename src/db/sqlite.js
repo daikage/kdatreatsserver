@@ -13,7 +13,7 @@ export function createSqliteDriver(connectionString) {
   // connectionString is a filesystem path for SQLite.
   const file = connectionString && connectionString !== ':memory:'
     ? connectionString
-    : path.join(process.cwd(), 'data', 'kdbtreats.db');
+    : path.join(process.cwd(), 'data', 'KDAtreats.db');
 
   if (file !== ':memory:') {
     fs.mkdirSync(path.dirname(file), { recursive: true });

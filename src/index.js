@@ -1,8 +1,10 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import menuRoutes from './routes/menu.js';
 import orderRoutes from './routes/orders.js';
 import messageRoutes from './routes/messages.js';
+import adminRoutes from './routes/admin.js';
 import { seed } from './seed.js';
 
 const PORT = Number(process.env.PORT) || 4000;
@@ -29,6 +31,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api', menuRoutes);
 app.use('/api', orderRoutes);
 app.use('/api', messageRoutes);
+app.use('/api', adminRoutes);
 
 /** 404 for unmatched /api routes */
 app.use('/api', (_req, res) => {
@@ -42,6 +45,6 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`KDB Treats API listening on http://localhost:${PORT}`);
+  console.log(`KDA Treats API listening on http://localhost:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
 });

@@ -1,8 +1,8 @@
 {
-  "name": "kdbtreats-server",
+  "name": "KDAtreats-server",
   "version": "1.0.0",
   "private": true,
-  "description": "KDB Treats — REST API for menu, categories, orders and contact messages",
+  "description": "KDA Treats — REST API for menu, categories, orders and contact messages",
   "main": "src/index.js",
   "type": "module",
   "engines": {

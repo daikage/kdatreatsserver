@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'kdbtreats.db');
+export const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'KDAtreats.db');
 
 // Ensure the data directory exists before opening the database file.
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });

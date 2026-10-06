@@ -3,12 +3,21 @@
  * exercises every endpoint, and exits non-zero on any failure.
  */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.TEST_PORT || 4999;
 const BASE = `http://127.0.0.1:${PORT}/api`;
+
+// Run every test against a fresh, isolated database so test data never
+// leaks between runs or into the developer's local KDAtreats.db.
+const TEST_DB = path.join(os.tmpdir(), `KDAtreats-api-test-${process.pid}.db`);
+for (const suffix of ['', '-wal', '-shm']) {
+  fs.rmSync(`${TEST_DB}${suffix}`, { force: true });
+}
 
 let passed = 0;
 let failed = 0;
@@ -23,10 +32,14 @@ function check(name, condition, extra = '') {
   }
 }
 
+let authToken = null;
+
 async function api(method, endpoint, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
   const res = await fetch(`${BASE}${endpoint}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   let data = null;
@@ -36,7 +49,12 @@ async function api(method, endpoint, body) {
 
 const server = spawn(process.execPath, ['src/index.js'], {
   cwd: path.join(__dirname, '..'),
-  env: { ...process.env, PORT: String(PORT) },
+  env: {
+    ...process.env,
+    PORT: String(PORT),
+    ADMIN_PASSCODE: 'test-passcode',
+    SQLITE_PATH: TEST_DB,
+  },
   stdio: 'ignore',
 });
 
@@ -103,8 +121,30 @@ test('Menu', 'GET /api/menu/:id returns 404 for unknown id', async () => {
   return [r.status === 404, r.status];
 });
 
+// ── Admin: Auth ──────────────────────────────────────────────────────
+test('Admin', 'admin endpoints are denied without a token', async () => {
+  const r = await api('GET', '/admin/stats');
+  return [r.status === 401, r.status];
+});
+
+test('Admin', 'POST /api/admin/login rejects a wrong passcode', async () => {
+  const r = await api('POST', '/admin/login', { passcode: 'wrong-passcode' });
+  return [r.status === 401, r.status];
+});
+
+test('Admin', 'POST /api/admin/login returns a token for the right passcode', async () => {
+  const r = await api('POST', '/admin/login', { passcode: 'test-passcode' });
+  authToken = r.data?.token;
+  return [r.status === 200 && typeof authToken === 'string' && authToken.length > 10, r.status];
+});
+
+test('Admin', 'admin stats succeed with a valid token', async () => {
+  const r = await api('GET', '/admin/stats');
+  return [r.status === 200 && !!r.data?.stats, r.status];
+});
+
 // ── Orders ───────────────────────────────────────────────────────────
-let sampleId, samplePrice, orderId;
+let sampleId, samplePrice, orderId, testItemId;
 
 test('Orders', 'POST /api/orders rejects invalid payload with 400', async () => {
   const r = await api('POST', '/orders', { customerName: '', items: [] });
@@ -148,7 +188,7 @@ test('Orders', 'POST /api/orders creates an order', async () => {
 test('Orders', 'Server recomputes total from DB price (ignores client price)', async () => {
   const r = await api('GET', `/orders/${orderId}`);
   return [r.data?.order?.totalPrice === samplePrice * 2,
-    `expected ${samplePrice * 2}, got ${r.data?.order?.totalPrice}`];
+  `expected ${samplePrice * 2}, got ${r.data?.order?.totalPrice}`];
 });
 
 test('Orders', 'GET /api/orders/:id returns order with items', async () => {
@@ -187,6 +227,120 @@ test('Messages', 'POST /api/messages stores a message', async () => {
 test('Messages', 'GET /api/messages lists messages', async () => {
   const r = await api('GET', '/messages');
   return [r.status === 200 && r.data?.messages?.length >= 1, `got ${r.data?.messages?.length}`];
+});
+
+// ── Admin: Category & Menu CRUD ─────────────────────────────────────
+test('Admin', 'POST /api/categories creates a category', async () => {
+  const r = await api('POST', '/categories', { name: 'Test Category', icon: '🧪', sortOrder: 99 });
+  return [r.status === 201 && r.data?.category?.slug === 'test-category', r.status];
+});
+
+test('Admin', 'POST /api/categories auto-uniquifies duplicate slugs', async () => {
+  const r = await api('POST', '/categories', { name: 'Test Category' });
+  return [r.status === 201 && r.data?.category?.slug === 'test-category-2', `got ${r.data?.category?.slug}`];
+});
+
+test('Admin', 'PUT /api/categories/:id updates name + slug', async () => {
+  const r = await api('PUT', '/categories/test-category', {
+    name: 'Updated Category',
+    slug: 'updated-category',
+  });
+  return [
+    r.status === 200
+    && r.data?.category?.name === 'Updated Category'
+    && r.data?.category?.slug === 'updated-category',
+    r.status,
+  ];
+});
+
+test('Admin', 'POST /api/menu creates an item in a category', async () => {
+  const r = await api('POST', '/menu', {
+    name: 'Test Snack',
+    price: 900,
+    category: 'updated-category',
+  });
+  testItemId = r.data?.item?.id;
+  return [r.status === 201 && r.data?.item?.name === 'Test Snack', r.status];
+});
+
+test('Admin', 'DELETE /api/categories/:id is rejected while items use it', async () => {
+  const r = await api('DELETE', '/categories/updated-category');
+  return [r.status === 409, r.status];
+});
+
+test('Admin', 'PUT /api/menu/:id updates the item', async () => {
+  const r = await api('PUT', `/menu/${testItemId}`, {
+    name: 'Test Snack Supreme',
+    price: 1100,
+    category: 'updated-category',
+    spiceLevel: 2,
+  });
+  return [
+    r.status === 200
+    && r.data?.item?.price === 1100
+    && r.data?.item?.spiceLevel === 2,
+    r.status,
+  ];
+});
+
+test('Admin', 'DELETE /api/menu/:id removes the item', async () => {
+  const r = await api('DELETE', `/menu/${testItemId}`);
+  return [r.status === 200, r.status];
+});
+
+test('Admin', 'DELETE /api/categories/:id removes an empty category', async () => {
+  const r = await api('DELETE', '/categories/updated-category');
+  const r2 = await api('DELETE', '/categories/test-category-2');
+  return [r.status === 200 && r2.status === 200, `main ${r.status}, uniquified ${r2.status}`];
+});
+
+test('Menu', 'Menu still has 16 items after admin CRUD', async () => {
+  const r = await api('GET', '/menu');
+  return [r.data?.items?.length === 16, `got ${r.data?.items?.length}`];
+});
+
+// ── Admin: Stats ────────────────────────────────────────────────────
+test('Admin', 'GET /api/admin/stats returns dashboard metrics', async () => {
+  const r = await api('GET', '/admin/stats');
+  const s = r.data?.stats;
+  return [
+    r.status === 200
+    && typeof s?.totalRevenue === 'number'
+    && typeof s?.totalOrders === 'number'
+    && typeof s?.todayRevenue === 'number'
+    && typeof s?.unreadMessages === 'number'
+    && s?.statusBreakdown && typeof s.statusBreakdown.pending === 'number'
+    && Array.isArray(s?.dailySales) && s.dailySales.length === 7
+    && Array.isArray(s?.recentOrders)
+    && Array.isArray(s?.popularItems),
+    `status ${r.status}`,
+  ];
+});
+
+// ── Admin: Orders & Messages cleanup ────────────────────────────────
+test('Admin', 'DELETE /api/orders/:id removes an order', async () => {
+  const created = await api('POST', '/orders', {
+    customerName: 'Cleanup', customerAddress: 'Lekki',
+    items: [{ itemId: sampleId, quantity: 1 }],
+  });
+  const id = created.data?.order?.id;
+  const del = await api('DELETE', `/orders/${id}`);
+  const gone = await api('GET', `/orders/${id}`);
+  return [del.status === 200 && gone.status === 404, `del ${del.status}, gone ${gone.status}`];
+});
+
+test('Admin', 'GET /api/orders?status= filters results', async () => {
+  const r = await api('GET', `/orders?status=${orderId ? 'confirmed' : 'pending'}`);
+  return [r.status === 200 && r.data?.orders?.every((o) => o.status === 'confirmed'), r.status];
+});
+
+test('Admin', 'DELETE /api/messages/:id removes a message', async () => {
+  const created = await api('POST', '/messages', {
+    name: 'Cleanup', email: 'cleanup@example.com', message: 'delete me',
+  });
+  const id = created.data?.message?.id;
+  const del = await api('DELETE', `/messages/${id}`);
+  return [del.status === 200, del.status];
 });
 
 // ── Errors ───────────────────────────────────────────────────────────
