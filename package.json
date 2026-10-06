@@ -1,0 +1,24 @@
+{
+  "name": "kdbtreats-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KDB Treats — REST API for menu, categories, orders and contact messages",
+  "main": "src/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/seed.js",
+    "test:api": "node test/api.test.js"
+  },
+  "dependencies": {
+    "cloudinary": "^2.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^18.0.5",
+    "express": "^4.21.2",
+    "pg": "^8.23.1"
+  }
+}
