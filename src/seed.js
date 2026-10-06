@@ -1,18 +1,40 @@
 /**
- * Seeds the database from the client's seed data
- * (client/src/data/menu.js) so the API and UI stay in sync.
+ * Seeds the database from the menu seed data so the API and UI stay in sync.
+ *
+ * The client's copy (client/src/data/menu.js) is preferred whenever the full
+ * monorepo is checked out (local development). When the server ships on its
+ * own — e.g. a Render service with root directory `server`, where files
+ * outside the service root don't exist — the bundled copy
+ * (server/src/data/menu.js) is used instead.
+ *
  * Safe to run repeatedly: only an empty database is populated, so admin
  * edits to prices/availability are never overwritten on restart.
  * Pass { force: true } to deliberately rebuild the catalogue.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import db, { transaction } from './db/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MENU_MODULE = path.resolve(__dirname, '..', '..', 'client', 'src', 'data', 'menu.js');
+
+// Candidate locations for the seed data module, in preference order:
+//  1. The client's copy — the source of truth in a full monorepo checkout.
+//  2. The bundled copy — used when the server is deployed without the
+//     client/ directory (e.g. Render root directory = `server`).
+const MENU_CANDIDATES = [
+  path.resolve(__dirname, '..', '..', 'client', 'src', 'data', 'menu.js'),
+  path.resolve(__dirname, 'data', 'menu.js'),
+];
+
+const MENU_MODULE = MENU_CANDIDATES.find((candidate) => fs.existsSync(candidate));
 
 export async function seed({ silent = false, force = false } = {}) {
+  if (!MENU_MODULE) {
+    throw new Error(
+      `Menu seed data not found. Looked in:\n  ${MENU_CANDIDATES.join('\n  ')}`,
+    );
+  }
   const { categories, menuItems } = await import(pathToFileURL(MENU_MODULE).href);
 
   const upsertCategory = async (c) => {

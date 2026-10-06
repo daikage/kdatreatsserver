@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.TEST_PORT || 4999;
@@ -348,6 +348,22 @@ test('Errors', 'Unknown /api route returns JSON 404', async () => {
   const r = await api('GET', '/does-not-exist');
   return [r.status === 404 && !!r.data?.error, r.status];
 });
+
+// ── Seed data ─────────────────────────────────────────────────────────
+test('Seed data', 'bundled copy matches client/src/data/menu.js', async () => {
+  // In a full monorepo checkout the two copies must stay in sync; when the
+  // server ships alone (e.g. Render root directory = `server`) there is
+  // nothing to compare against, so the check is skipped.
+  const clientMenu = path.join(__dirname, '..', '..', 'client', 'src', 'data', 'menu.js');
+  if (!fs.existsSync(clientMenu)) return [true, 'client copy not present — skipped'];
+  const client = await import(pathToFileURL(clientMenu).href);
+  const bundled = await import('../src/data/menu.js');
+  const inSync =
+    JSON.stringify(client.categories) === JSON.stringify(bundled.categories)
+    && JSON.stringify(client.menuItems) === JSON.stringify(bundled.menuItems);
+  return [inSync, 'server/src/data/menu.js has drifted from client/src/data/menu.js'];
+});
+
 
 try {
   let currentGroup = '';

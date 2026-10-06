@@ -1,5 +1,7 @@
 node_modules/
-data/
+# Only the SQLite database directory at the server root — a broad `data/`
+# pattern would also ignore src/data/ (the bundled seed data).
+/data/
 *.db
 *.db-shm
 *.db-wal

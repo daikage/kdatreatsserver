@@ -138,7 +138,9 @@ server/
 │   │   ├── migrate.js    # Idempotent schema (SQLite + Postgres)
 │   │   ├── sqlite.js     # node:sqlite driver
 │   │   └── postgres.js   # pg driver
-│   ├── seed.js           # Seeds from client/src/data/menu.js
+│   ├── data/
+│   │   └── menu.js       # Bundled seed copy (fallback when client/ is absent)
+│   ├── seed.js           # Seeds from client/src/data/menu.js, else src/data/menu.js
 │   └── routes/
 │       ├── menu.js       # Categories + menu items (+ admin CRUD)
 │       ├── orders.js     # Order creation, tracking, admin delete
